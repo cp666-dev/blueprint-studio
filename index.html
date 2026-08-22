@@ -586,7 +586,100 @@ function analyzeBuffer(buf){
             beat, bassRatio:cd?bassE/cd:0 };
   A.style=classifyStyle(A);
   A.elements=analyzeElements(mono,sr);
+  A._mono=mono; A._sr=sr; /* kept for the AI pass, released after */
   return A;
+}
+
+/* ─── AI instrument identification: YAMNet (AudioSet, 521 classes) via TensorFlow.js.
+   Model is self-hosted next to the app; everything runs in-browser. Raw model
+   output is already calibrated probabilities. ─── */
+const YAM={model:null,loading:null};
+const YAM_INSTRUMENTS=[
+  {name:"Vocals",              idx:[24,30,31]},
+  {name:"Choir",               idx:[25]},
+  {name:"Piano / Keys",        idx:[148,149,147,155]},
+  {name:"Organ",               idx:[150,151,152]},
+  {name:"Synthesizer",         idx:[153,154]},
+  {name:"Acoustic Guitar",     idx:[138,135,134]},
+  {name:"Electric Guitar",     idx:[136,139]},
+  {name:"Bass Guitar",         idx:[137]},
+  {name:"Strings / Orchestra", idx:[184,185,186,188,179,194]},
+  {name:"Brass",               idx:[180,181,182,183]},
+  {name:"Woodwinds",           idx:[191,192,193]},
+  {name:"Bells / Mallets",     idx:[175,176,195,173]},
+];
+const YAM_GENRES=[
+  ["edm",[234,235,236,237,238,239,240,242,231,269]],
+  ["hiphop",[212,213]],
+  ["rock",[214,215,216,217,218,219]],
+  ["rnb",[221,222,227]],
+  ["cinematic",[232,241,248,263,265]],
+  ["pop",[211]],
+];
+function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement("script"); s.src=src; s.onload=res; s.onerror=()=>rej(new Error("failed "+src)); document.head.appendChild(s); }); }
+async function yamLoad(){
+  if(YAM.model) return YAM.model;
+  if(!YAM.loading) YAM.loading=(async()=>{
+    if(!window.tf) await loadScript("https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js");
+    YAM.model=await tf.loadGraphModel("yamnet/model.json");
+    return YAM.model;
+  })();
+  return YAM.loading;
+}
+function resample16k(mono,sr){
+  if(sr===16000) return mono;
+  const ratio=sr/16000, n=Math.floor(mono.length/ratio);
+  const out=new Float32Array(n);
+  for(let i=0;i<n;i++){ const x=i*ratio, x0=Math.floor(x), fr=x-x0; out[i]=mono[x0]*(1-fr)+(mono[x0+1]||0)*fr; }
+  return out;
+}
+async function analyzeInstruments(mono,sr,onProgress){
+  const model=await yamLoad();
+  const w=resample16k(mono,sr);
+  const SEGS=24, segMeans=[];
+  for(let s=0;s<SEGS;s++){
+    const a=Math.floor(s*w.length/SEGS), b=Math.floor((s+1)*w.length/SEGS);
+    if(b-a<16000){ segMeans.push(new Float32Array(521)); continue; }
+    const meanT=tf.tidy(()=>{
+      const out=model.predict(tf.tensor1d(w.subarray(a,b)));
+      const scores=(Array.isArray(out)?out:[out]).find(t=>t.shape.length===2&&t.shape[1]===521);
+      return scores.mean(0);
+    });
+    segMeans.push(await meanT.data());
+    meanT.dispose();
+    if(onProgress) onProgress(s+1,SEGS);
+    await new Promise(r=>setTimeout(r,0));
+  }
+  const rows=[];
+  YAM_INSTRUMENTS.forEach(g=>{
+    const vals=new Float32Array(SEGS);
+    for(let s=0;s<SEGS;s++){ let m=0; for(const i of g.idx) if(segMeans[s][i]>m) m=segMeans[s][i]; vals[s]=m; }
+    if(Math.max(...vals)>=0.05) rows.push({name:g.name, band:"AI-identified", kind:"ml", vals});
+  });
+  const overall=new Float32Array(521);
+  segMeans.forEach(sm=>{ for(let i=0;i<521;i++) overall[i]+=sm[i]/SEGS; });
+  let genre=null, gBest=0;
+  YAM_GENRES.forEach(([k,idx])=>{ let m=0; for(const i of idx) if(overall[i]>m) m=overall[i]; if(m>gBest){ gBest=m; genre=k; } });
+  return { rows, genre:(gBest>=0.05)?genre:null };
+}
+async function runML(A){
+  try{
+    $("spec-t").classList.add("busy");
+    $("sp-status").textContent="Loading AI model…";
+    const ml=await analyzeInstruments(A._mono,A._sr,(i,n)=>{ $("sp-status").textContent="AI listening… "+i+"/"+n; });
+    delete A._mono;
+    if(state.analysis!==A) return;
+    A.ml=ml;
+    if(ml.genre){ A.mlGenre=ml.genre; A.style=ml.genre; }
+    $("spec-t").classList.remove("busy");
+    $("sp-status").textContent="Spectral Analysis + AI";
+    showSpec(A);
+    if(state.data) generate();
+  }catch(e){
+    delete A._mono;
+    $("spec-t").classList.remove("busy");
+    $("sp-status").textContent="Spectral Analysis (AI unavailable offline)";
+  }
 }
 
 /* ─── Element-layer detection: STFT over 8 bands → 12 measured layers ───
@@ -680,7 +773,7 @@ function showSpec(A){
   const c=A.centroid;
   $("sp-cen").textContent=(c<1300?"Warm":c<2600?"Balanced":"Bright")+" · "+(c/1000).toFixed(1)+" kHz";
   $("sp-dr").textContent=A.crest.toFixed(1)+" dB";
-  $("sp-style").textContent=STYLES[A.style].name+" · detected";
+  $("sp-style").textContent=STYLES[A.style].name+(A.mlGenre?" · AI-identified":" · detected");
   $("sp-arc").textContent=A.arc.label+" · detected";
   $("sp-bars").innerHTML=A.contour.map(v=>'<span style="height:'+v+'%"></span>').join("");
   $("opt-follow").textContent="Follow reference ("+A.arc.short+")";
@@ -722,6 +815,7 @@ function setFile(f){
      if(state.file!==f) return;
      state.analysis=A; showSpec(A);
      if(state.data) generate();
+     runML(A);
    })
    .catch(()=>{
      $("fm").textContent=(f.size/1048576).toFixed(1)+" MB · couldn't decode";
@@ -811,8 +905,14 @@ function generate(){
   /* measured element layers: map 24 track segments onto sections, derive real entrances */
   let elemRows=null;
   if(A&&A.elements){
-    const segs=A.elements.rows[0].vals.length;
-    elemRows=A.elements.rows.map(r=>{
+    let srcRows=A.elements.rows.slice();
+    if(A.ml&&A.ml.rows.length){
+      if(A.ml.rows.some(r=>r.name==="Vocals"||r.name==="Choir"))
+        srcRows=srcRows.filter(r=>r.name!=="Vocal Presence");
+      srcRows=srcRows.concat(A.ml.rows);
+    }
+    const segs=srcRows[0].vals.length;
+    elemRows=srcRows.map(r=>{
       const lv=sections.map(s=>{
         const a=Math.min(segs-1,Math.floor(s.start/total*segs));
         const b=Math.max(a+1,Math.min(segs,Math.ceil((s.start+s.len)/total*segs)));
@@ -829,7 +929,7 @@ function generate(){
     });
   }
 
-  state.data={name,S,g,bpm,key,chords,sections,total,mood,ts:"4/4",measured:!!A,elemRows};
+  state.data={name,S,g,bpm,key,chords,sections,total,mood,ts:"4/4",measured:!!A,elemRows,aiRan:!!(A&&A.ml)};
   render();
 }
 
@@ -880,7 +980,7 @@ function render(){
 
   // matrix
   $("s-elements").style.display=inc("elements")?"block":"none";
-  $("wpw-src").textContent=d.elemRows?"· measured from your audio":"· from style template";
+  $("wpw-src").textContent=d.elemRows?(d.aiRan?"· measured + AI-identified":"· measured from your audio"):"· from style template";
   if(inc("elements")){
     const head='<table><thead><tr><th>Element</th>'+d.sections.map(s=>'<th>'+s.name.split(" ")[0]+'</th>').join("")+'</tr></thead>';
     let html;

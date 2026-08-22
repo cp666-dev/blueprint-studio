@@ -79,6 +79,13 @@ body { background:
 .filechip .fm { font-family:var(--f-mono); font-size:9.5px; color:var(--faint); margin-top:2px; }
 .filechip .x { margin-left:auto; cursor:pointer; color:var(--faint); font-size:13px; line-height:1; padding:3px 5px; }
 .filechip .x:hover { color:var(--red); }
+.foundchip { display:none; align-items:center; gap:11px; margin-top:10px; padding:9px 11px;
+  border:1px solid var(--line); border-radius:var(--r-m); background:var(--inset); text-align:left; }
+.foundchip.on { display:flex; }
+.foundchip img { width:36px; height:36px; border-radius:4px; display:none; border:1px solid var(--line); flex:none; }
+.foundchip .fi { min-width:0; }
+.foundchip .ft { font-family:var(--f-mono); font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.foundchip .fs { font-family:var(--f-mono); font-size:9.5px; color:var(--faint); margin-top:2px; }
 
 /* ── Spectral readout ─────────────────────── */
 .spec { display:none; margin-top:10px; border:1px solid var(--line); border-radius:var(--r-m); background:var(--inset); padding:11px 13px; }
@@ -298,9 +305,13 @@ select option { background:var(--raised); }
               </div>
               <div class="spec-bars" id="sp-bars" title="Measured energy contour"></div>
             </div>
-            <div class="or">or by name</div>
+            <div class="or">or find by name</div>
             <label class="fl" for="song">Reference track</label>
             <input type="text" id="song" placeholder='e.g. "Midnight City" — M83' autocomplete="off">
+            <div class="foundchip" id="foundchip">
+              <img id="ftart" alt="">
+              <div class="fi"><div class="ft" id="fttitle"></div><div class="fs" id="ftsub"></div></div>
+            </div>
             <div class="row2 mt10">
               <div>
                 <label class="fl" for="genre">Style</label>
@@ -488,8 +499,60 @@ const KEYS=[["C major","8B"],["G major","9B"],["D major","10B"],["A major","11B"
 const GENRE_HINTS=[[/club|rave|drop|night|dance|neon|house|techno/i,"edm"],[/trap|drill|streets|hustle|gang|flex/i,"hiphop"],[/love|heart|soul|baby|tender|velvet/i,"rnb"],[/riff|road|fire|wild|electric|garage/i,"rock"],[/dawn|ocean|drift|dream|horizon|score|theme/i,"cinematic"]];
 const CAMELOT={"C major":"8B","G major":"9B","D major":"10B","A major":"11B","E major":"12B","B major":"1B","F♯ major":"2B","C♯ major":"3B","A♭ major":"4B","E♭ major":"5B","B♭ major":"6B","F major":"7B","A minor":"8A","E minor":"9A","B minor":"10A","F♯ minor":"11A","C♯ minor":"12A","A♭ minor":"1A","E♭ minor":"2A","B♭ minor":"3A","F minor":"4A","C minor":"5A","G minor":"6A","D minor":"7A"};
 
-let state={ file:null, dur:null, data:null, analysis:null };
+let state={ file:null, dur:null, data:null, analysis:null, source:null, track:null, query:null };
 let actx=null;
+
+/* ─── Track lookup: iTunes Search API (keyless, JSONP) + 30s preview analysis ─── */
+const GENRE_MAP=[[/hip.?hop|rap|trap|drill/i,"hiphop"],[/dance|electro|house|techno|edm|trance|dubstep|drum\s*&?\s*bass|garage/i,"edm"],[/rock|metal|punk|alternative|indie|grunge/i,"rock"],[/r&b|soul|funk/i,"rnb"],[/soundtrack|classical|score|ambient|new age|instrumental/i,"cinematic"]];
+function mapGenre(g){ for(const [re,k] of GENRE_MAP) if(re.test(g)) return k; return null; }
+
+function itunesSearch(term){
+  return new Promise((resolve,reject)=>{
+    const cb="__itcb"+Math.floor(Math.random()*1e9);
+    const s=document.createElement("script");
+    const to=setTimeout(()=>{ cleanup(); reject(new Error("timeout")); },8000);
+    function cleanup(){ clearTimeout(to); delete window[cb]; s.remove(); }
+    window[cb]=d=>{ cleanup(); resolve(d); };
+    s.onerror=()=>{ cleanup(); reject(new Error("network")); };
+    s.src="https://itunes.apple.com/search?media=music&limit=1&term="+encodeURIComponent(term)+"&callback="+cb;
+    document.head.appendChild(s);
+  });
+}
+
+async function lookupTrack(term){
+  state.track=null; state.analysis=null; state.source=null; state.query=term;
+  const chip=$("foundchip"); chip.classList.add("on");
+  $("ftart").style.display="none";
+  $("fttitle").textContent="Searching…";
+  $("ftsub").textContent='iTunes catalog · "'+term+'"';
+  let r=null;
+  try{ const d=await itunesSearch(term); r=(d.results&&d.results[0])||null; }catch(e){}
+  if(!r){
+    $("fttitle").textContent="No match found";
+    $("ftsub").textContent="Using a styled blueprint from the name instead";
+    return;
+  }
+  const t=state.track={ artist:r.artistName, title:r.trackName, genre:r.primaryGenreName||"",
+    styleKey:mapGenre(r.primaryGenreName||""), durMs:r.trackTimeMillis||0,
+    art:(r.artworkUrl100||""), preview:r.previewUrl||"" };
+  if(t.art){ $("ftart").src=t.art; $("ftart").style.display="block"; }
+  $("fttitle").textContent=t.artist+" — "+t.title;
+  const base=(t.genre||"Unknown genre")+(t.durMs?" · "+fmtTime(t.durMs/1000):"");
+  $("ftsub").textContent=base+" · analyzing 30s preview…";
+  if(t.preview){
+    try{
+      const buf=await (await fetch(t.preview)).arrayBuffer();
+      actx=actx||new (window.AudioContext||window.webkitAudioContext)();
+      const abuf=await actx.decodeAudioData(buf);
+      state.source="search";
+      state.analysis=analyzeBuffer(abuf);
+      showSpec(state.analysis);
+      $("ftsub").textContent=base+" · 30s preview analyzed ✓";
+      return;
+    }catch(e){}
+  }
+  $("ftsub").textContent=base+" · preview unavailable — using catalog genre + styled values";
+}
 
 /* ─── Spectral Analyzer (FFT-based, in-browser) ─── */
 function fft(re,im){
@@ -624,7 +687,9 @@ function showSpec(A){
   const c=A.centroid;
   $("sp-cen").textContent=(c<1300?"Warm":c<2600?"Balanced":"Bright")+" · "+(c/1000).toFixed(1)+" kHz";
   $("sp-dr").textContent=A.crest.toFixed(1)+" dB";
-  $("sp-style").textContent=STYLES[A.style].name+" · detected";
+  $("sp-style").textContent=(state.source==="search"&&state.track&&state.track.styleKey)
+    ? STYLES[state.track.styleKey].name+" · "+state.track.genre+" (catalog)"
+    : STYLES[A.style].name+" · detected";
   $("sp-arc").textContent=A.arc.label+" · detected";
   $("sp-bars").innerHTML=A.contour.map(v=>'<span style="height:'+v+'%"></span>').join("");
   $("opt-follow").textContent="Follow reference ("+A.arc.short+")";
@@ -639,14 +704,15 @@ drop.addEventListener("click",()=>fileInput.click());
 drop.addEventListener("drop",ev=>{ const f=ev.dataTransfer.files[0]; if(f) setFile(f); });
 fileInput.addEventListener("change",()=>{ if(fileInput.files[0]) setFile(fileInput.files[0]); });
 $("fx").addEventListener("click",ev=>{
-  ev.stopPropagation(); state.file=null; state.dur=null; state.analysis=null;
+  ev.stopPropagation(); state.file=null; state.dur=null; state.analysis=null; state.source=null;
   $("filechip").classList.remove("on"); $("spec").classList.remove("on"); fileInput.value="";
   $("opt-follow").textContent="Follow reference (auto)";
   if(state.data) generate();
 });
 
 function setFile(f){
-  state.file=f; state.analysis=null;
+  state.file=f; state.analysis=null; state.source="file";
+  state.track=null; state.query=null; $("foundchip").classList.remove("on");
   $("fn").textContent=f.name;
   $("fm").textContent=(f.size/1048576).toFixed(1)+" MB · decoding…";
   $("filechip").classList.add("on");
@@ -681,20 +747,37 @@ function inferGenre(name,rand){
 }
 
 $("song").addEventListener("keydown",e=>{ if(e.key==="Enter") generate(); });
-$("go").addEventListener("click",generate);
+$("go").addEventListener("click",()=>generate());
+/* editing the query invalidates the previous lookup */
+$("song").addEventListener("input",()=>{
+  if(state.query && $("song").value.trim()!==state.query){
+    state.query=null; state.track=null; $("foundchip").classList.remove("on");
+    if(state.source==="search"){
+      state.analysis=null; state.source=null;
+      $("spec").classList.remove("on");
+      $("opt-follow").textContent="Follow reference (auto)";
+    }
+  }
+});
 
-function generate(){
-  const name=state.file? state.file.name.replace(/\.[^.]+$/,"") : $("song").value.trim();
+async function generate(){
+  let name=state.file? state.file.name.replace(/\.[^.]+$/,"") : $("song").value.trim();
   if(!name){ $("song").focus(); $("song").placeholder="Name a reference track first…"; return; }
+  if(!state.file && state.query!==name) await lookupTrack(name);
+  if(!state.file && state.track) name=state.track.artist+" — "+state.track.title;
   const rand=mulberry32(hash(name.toLowerCase()));
   let g=$("genre").value;
-  if(g==="auto") g=(state.file&&state.analysis)? state.analysis.style : inferGenre(name,rand);
+  if(g==="auto"){
+    if(!state.file && state.track && state.track.styleKey) g=state.track.styleKey;
+    else if(state.analysis) g=state.analysis.style;
+    else g=inferGenre(name,rand);
+  }
   const S=STYLES[g];
   let bpm=Math.round(S.bpm[0]+rand()*(S.bpm[1]-S.bpm[0]));
   let key=KEYS[Math.floor(rand()*KEYS.length)];
   const chords=S.chords[Math.floor(rand()*S.chords.length)];
   const mood=$("mood").value;
-  const A=state.file? state.analysis:null;
+  const A=state.analysis;
   if(A){ bpm=A.bpm; key=[A.keyName,A.camelot]; }
 
   // sections with energy shaped by profile
@@ -734,7 +817,8 @@ function generate(){
     s.trans=s.idx<N-1? transitionFor(s,sections[s.idx+1],rand):"Let final element ring out to silence";
   });
 
-  state.data={name,S,g,bpm,key,chords,sections,total,mood,ts:"4/4",measured:!!A};
+  state.data={name,S,g,bpm,key,chords,sections,total,mood,ts:"4/4",measured:!!A,
+              srcLabel:A? (state.source==="file"?"file analyzed":"30s preview analyzed"):""};
   render();
 }
 
@@ -752,7 +836,7 @@ function render(){
   const d=state.data;
   $("empty").style.display="none"; $("out").classList.add("on");
   $("o-title").textContent=d.name.toUpperCase();
-  $("o-meta").innerHTML="Blueprint · "+d.S.name+" · "+d.sections.length+" sections · est. "+fmtTime(d.total)+(d.measured?" · <em>spectral analysis</em>":"");
+  $("o-meta").innerHTML="Blueprint · "+d.S.name+" · "+d.sections.length+" sections · est. "+fmtTime(d.total)+(d.measured?(state.source==="search"?" · <em>30s preview analyzed</em>":" · <em>spectral analysis</em>"):"");
   $("dlmid").style.display=inc("midi")?"inline-flex":"none";
 
   // stats

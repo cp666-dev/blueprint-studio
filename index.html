@@ -31,7 +31,7 @@ body { background:
 ::-webkit-scrollbar-thumb { background:var(--line-strong); border-radius:5px; border:2px solid var(--panel); }
 ::-webkit-scrollbar-track { background:transparent; }
 
-.app { max-width:1300px; margin:0 auto; padding:26px 28px 70px; }
+.app { max-width:1400px; margin:0 auto; padding:22px clamp(12px,2.5vw,28px) 70px; min-width:0; }
 .chrome { background:var(--panel); border:1px solid var(--line); border-radius:12px; box-shadow:var(--sh-panel); overflow:hidden; }
 
 /* ── Titlebar ─────────────────────────────── */
@@ -51,9 +51,9 @@ body { background:
 .ver { font-family:var(--f-mono); font-size:10px; color:var(--faint); letter-spacing:.1em; }
 
 /* ── Layout ───────────────────────────────── */
-.body { display:grid; grid-template-columns:356px 1fr; min-height:740px; }
+.body { display:grid; grid-template-columns:330px minmax(0,1fr); min-height:740px; }
 .panel-left { border-right:1px solid var(--line); background:var(--well); padding:18px; display:flex; flex-direction:column; gap:14px; }
-.panel-right { padding:26px 28px; background:var(--panel); overflow:auto; }
+.panel-right { padding:24px clamp(14px,2vw,28px); background:var(--panel); min-width:0; }
 
 .mod { background:var(--raised); border:1px solid var(--line); border-radius:var(--r-l); overflow:hidden; }
 .mod-h { display:flex; align-items:center; gap:9px; padding:11px 14px; border-bottom:1px solid var(--line-faint);
@@ -79,13 +79,6 @@ body { background:
 .filechip .fm { font-family:var(--f-mono); font-size:9.5px; color:var(--faint); margin-top:2px; }
 .filechip .x { margin-left:auto; cursor:pointer; color:var(--faint); font-size:13px; line-height:1; padding:3px 5px; }
 .filechip .x:hover { color:var(--red); }
-.foundchip { display:none; align-items:center; gap:11px; margin-top:10px; padding:9px 11px;
-  border:1px solid var(--line); border-radius:var(--r-m); background:var(--inset); text-align:left; }
-.foundchip.on { display:flex; }
-.foundchip img { width:36px; height:36px; border-radius:4px; display:none; border:1px solid var(--line); flex:none; }
-.foundchip .fi { min-width:0; }
-.foundchip .ft { font-family:var(--f-mono); font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.foundchip .fs { font-family:var(--f-mono); font-size:9.5px; color:var(--faint); margin-top:2px; }
 
 /* ── Spectral readout ─────────────────────── */
 .spec { display:none; margin-top:10px; border:1px solid var(--line); border-radius:var(--r-m); background:var(--inset); padding:11px 13px; }
@@ -159,11 +152,12 @@ select option { background:var(--raised); }
 .out.on { display:block; animation:rise .35s ease; }
 @keyframes rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
 
-.out-head { display:flex; align-items:flex-start; gap:14px; margin-bottom:20px; }
-.out-head .title h2 { font-family:var(--f-display); font-size:22px; font-weight:700; letter-spacing:.1em; line-height:1.2; }
+.out-head { display:flex; align-items:flex-start; gap:12px 14px; margin-bottom:20px; flex-wrap:wrap; }
+.out-head .title { min-width:0; }
+.out-head .title h2 { font-family:var(--f-display); font-size:22px; font-weight:700; letter-spacing:.1em; line-height:1.2; overflow-wrap:anywhere; }
 .out-head .title .meta { font-family:var(--f-mono); font-size:10px; letter-spacing:.2em; text-transform:uppercase; color:var(--muted); margin-top:6px; }
 .out-head .title .meta em { color:var(--led); font-style:normal; }
-.out-head .actions { margin-left:auto; display:flex; gap:8px; flex:none; }
+.out-head .actions { margin-left:auto; display:flex; gap:8px; flex:none; flex-wrap:wrap; }
 
 .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:18px; }
 .stat { background:var(--raised); border:1px solid var(--line); border-radius:var(--r-m); padding:12px 14px; position:relative; overflow:hidden; }
@@ -199,7 +193,7 @@ select option { background:var(--raised); }
 .energy-wrap svg { display:block; width:100%; height:112px; }
 
 /* elements matrix */
-.matrix { border:1px solid var(--line); border-radius:var(--r-m); overflow:hidden; background:var(--raised); }
+.matrix { border:1px solid var(--line); border-radius:var(--r-m); overflow-x:auto; background:var(--raised); }
 .matrix table { width:100%; border-collapse:collapse; }
 .matrix th, .matrix td { border-bottom:1px solid var(--line-faint); padding:0; }
 .matrix tr:last-child th, .matrix tr:last-child td { border-bottom:none; }
@@ -211,7 +205,7 @@ select option { background:var(--raised); }
 .matrix thead th:first-child { border-right:1px solid var(--line-faint); width:132px; }
 
 /* detail table */
-.dtable { border:1px solid var(--line); border-radius:var(--r-m); overflow:hidden; background:var(--raised); }
+.dtable { border:1px solid var(--line); border-radius:var(--r-m); overflow-x:auto; background:var(--raised); }
 .dtable table { width:100%; border-collapse:collapse; font-size:12px; }
 .dtable th { background:linear-gradient(180deg,#181d23,#13171c); font-family:var(--f-mono); font-size:8.5px; letter-spacing:.2em; text-transform:uppercase; color:var(--faint); font-weight:500; text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); }
 .dtable td { padding:10px 12px; border-bottom:1px solid var(--line-faint); vertical-align:top; line-height:1.5; color:var(--muted); }
@@ -305,14 +299,7 @@ select option { background:var(--raised); }
               </div>
               <div class="spec-bars" id="sp-bars" title="Measured energy contour"></div>
             </div>
-            <div class="or">or find by name</div>
-            <label class="fl" for="song">Reference track</label>
-            <input type="text" id="song" placeholder='e.g. "Midnight City" — M83' autocomplete="off">
-            <div class="foundchip" id="foundchip">
-              <img id="ftart" alt="">
-              <div class="fi"><div class="ft" id="fttitle"></div><div class="fs" id="ftsub"></div></div>
-            </div>
-            <div class="row2 mt10">
+            <div class="row2" style="margin-top:13px">
               <div>
                 <label class="fl" for="genre">Style</label>
                 <div class="selwrap"><select id="genre">
@@ -379,7 +366,7 @@ select option { background:var(--raised); }
             <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h3l3-8 4 16 3-8h3"/><path d="M20 12h2"/></svg>
           </div>
           <h2>Your Arrangement Awaits</h2>
-          <p>Attach a reference track or name one, choose what the blueprint should include, and Blueprint Studio will draft a session-ready arrangement scaffold for your DAW.</p>
+          <p>Drop a reference track, choose what the blueprint should include, and Blueprint Studio will analyze the audio and draft a session-ready arrangement scaffold for your DAW.</p>
         </div>
 
         <div class="out" id="out">
@@ -496,63 +483,10 @@ const STYLES = {
     mix:["Automate expression and dynamics before touching compressors.","Reserve the lowest octave for the climax only.","Silence is an instrument — leave one full beat of air after the climax.","Pan sections like a stage: strings wide, solo center, brass rear."] }
 };
 const KEYS=[["C major","8B"],["G major","9B"],["D major","10B"],["A major","11B"],["F major","7B"],["B♭ major","6B"],["E♭ major","5B"],["A minor","8A"],["E minor","9A"],["B minor","10A"],["F♯ minor","11A"],["D minor","7A"],["G minor","6A"],["C minor","5A"]];
-const GENRE_HINTS=[[/club|rave|drop|night|dance|neon|house|techno/i,"edm"],[/trap|drill|streets|hustle|gang|flex/i,"hiphop"],[/love|heart|soul|baby|tender|velvet/i,"rnb"],[/riff|road|fire|wild|electric|garage/i,"rock"],[/dawn|ocean|drift|dream|horizon|score|theme/i,"cinematic"]];
 const CAMELOT={"C major":"8B","G major":"9B","D major":"10B","A major":"11B","E major":"12B","B major":"1B","F♯ major":"2B","C♯ major":"3B","A♭ major":"4B","E♭ major":"5B","B♭ major":"6B","F major":"7B","A minor":"8A","E minor":"9A","B minor":"10A","F♯ minor":"11A","C♯ minor":"12A","A♭ minor":"1A","E♭ minor":"2A","B♭ minor":"3A","F minor":"4A","C minor":"5A","G minor":"6A","D minor":"7A"};
 
-let state={ file:null, dur:null, data:null, analysis:null, source:null, track:null, query:null };
+let state={ file:null, dur:null, data:null, analysis:null };
 let actx=null;
-
-/* ─── Track lookup: iTunes Search API (keyless, JSONP) + 30s preview analysis ─── */
-const GENRE_MAP=[[/hip.?hop|rap|trap|drill/i,"hiphop"],[/dance|electro|house|techno|edm|trance|dubstep|drum\s*&?\s*bass|garage/i,"edm"],[/rock|metal|punk|alternative|indie|grunge/i,"rock"],[/r&b|soul|funk/i,"rnb"],[/soundtrack|classical|score|ambient|new age|instrumental/i,"cinematic"]];
-function mapGenre(g){ for(const [re,k] of GENRE_MAP) if(re.test(g)) return k; return null; }
-
-function itunesSearch(term){
-  return new Promise((resolve,reject)=>{
-    const cb="__itcb"+Math.floor(Math.random()*1e9);
-    const s=document.createElement("script");
-    const to=setTimeout(()=>{ cleanup(); reject(new Error("timeout")); },8000);
-    function cleanup(){ clearTimeout(to); delete window[cb]; s.remove(); }
-    window[cb]=d=>{ cleanup(); resolve(d); };
-    s.onerror=()=>{ cleanup(); reject(new Error("network")); };
-    s.src="https://itunes.apple.com/search?media=music&limit=1&term="+encodeURIComponent(term)+"&callback="+cb;
-    document.head.appendChild(s);
-  });
-}
-
-async function lookupTrack(term){
-  state.track=null; state.analysis=null; state.source=null; state.query=term;
-  const chip=$("foundchip"); chip.classList.add("on");
-  $("ftart").style.display="none";
-  $("fttitle").textContent="Searching…";
-  $("ftsub").textContent='iTunes catalog · "'+term+'"';
-  let r=null;
-  try{ const d=await itunesSearch(term); r=(d.results&&d.results[0])||null; }catch(e){}
-  if(!r){
-    $("fttitle").textContent="No match found";
-    $("ftsub").textContent="Using a styled blueprint from the name instead";
-    return;
-  }
-  const t=state.track={ artist:r.artistName, title:r.trackName, genre:r.primaryGenreName||"",
-    styleKey:mapGenre(r.primaryGenreName||""), durMs:r.trackTimeMillis||0,
-    art:(r.artworkUrl100||""), preview:r.previewUrl||"" };
-  if(t.art){ $("ftart").src=t.art; $("ftart").style.display="block"; }
-  $("fttitle").textContent=t.artist+" — "+t.title;
-  const base=(t.genre||"Unknown genre")+(t.durMs?" · "+fmtTime(t.durMs/1000):"");
-  $("ftsub").textContent=base+" · analyzing 30s preview…";
-  if(t.preview){
-    try{
-      const buf=await (await fetch(t.preview)).arrayBuffer();
-      actx=actx||new (window.AudioContext||window.webkitAudioContext)();
-      const abuf=await actx.decodeAudioData(buf);
-      state.source="search";
-      state.analysis=analyzeBuffer(abuf);
-      showSpec(state.analysis);
-      $("ftsub").textContent=base+" · 30s preview analyzed ✓";
-      return;
-    }catch(e){}
-  }
-  $("ftsub").textContent=base+" · preview unavailable — using catalog genre + styled values";
-}
 
 /* ─── Spectral Analyzer (FFT-based, in-browser) ─── */
 function fft(re,im){
@@ -687,9 +621,7 @@ function showSpec(A){
   const c=A.centroid;
   $("sp-cen").textContent=(c<1300?"Warm":c<2600?"Balanced":"Bright")+" · "+(c/1000).toFixed(1)+" kHz";
   $("sp-dr").textContent=A.crest.toFixed(1)+" dB";
-  $("sp-style").textContent=(state.source==="search"&&state.track&&state.track.styleKey)
-    ? STYLES[state.track.styleKey].name+" · "+state.track.genre+" (catalog)"
-    : STYLES[A.style].name+" · detected";
+  $("sp-style").textContent=STYLES[A.style].name+" · detected";
   $("sp-arc").textContent=A.arc.label+" · detected";
   $("sp-bars").innerHTML=A.contour.map(v=>'<span style="height:'+v+'%"></span>').join("");
   $("opt-follow").textContent="Follow reference ("+A.arc.short+")";
@@ -704,15 +636,14 @@ drop.addEventListener("click",()=>fileInput.click());
 drop.addEventListener("drop",ev=>{ const f=ev.dataTransfer.files[0]; if(f) setFile(f); });
 fileInput.addEventListener("change",()=>{ if(fileInput.files[0]) setFile(fileInput.files[0]); });
 $("fx").addEventListener("click",ev=>{
-  ev.stopPropagation(); state.file=null; state.dur=null; state.analysis=null; state.source=null;
+  ev.stopPropagation(); state.file=null; state.dur=null; state.analysis=null;
   $("filechip").classList.remove("on"); $("spec").classList.remove("on"); fileInput.value="";
   $("opt-follow").textContent="Follow reference (auto)";
-  if(state.data) generate();
+  state.data=null; $("out").classList.remove("on"); $("empty").style.display="flex";
 });
 
 function setFile(f){
-  state.file=f; state.analysis=null; state.source="file";
-  state.track=null; state.query=null; $("foundchip").classList.remove("on");
+  state.file=f; state.analysis=null;
   $("fn").textContent=f.name;
   $("fm").textContent=(f.size/1048576).toFixed(1)+" MB · decoding…";
   $("filechip").classList.add("on");
@@ -741,37 +672,19 @@ function setFile(f){
 }
 function fmtTime(s){ const m=Math.floor(s/60); return m+":"+String(Math.round(s%60)).padStart(2,"0"); }
 
-function inferGenre(name,rand){
-  for(const [re,g] of GENRE_HINTS) if(re.test(name)) return g;
-  const keys=Object.keys(STYLES); return keys[Math.floor(rand()*keys.length)];
-}
-
-$("song").addEventListener("keydown",e=>{ if(e.key==="Enter") generate(); });
 $("go").addEventListener("click",()=>generate());
-/* editing the query invalidates the previous lookup */
-$("song").addEventListener("input",()=>{
-  if(state.query && $("song").value.trim()!==state.query){
-    state.query=null; state.track=null; $("foundchip").classList.remove("on");
-    if(state.source==="search"){
-      state.analysis=null; state.source=null;
-      $("spec").classList.remove("on");
-      $("opt-follow").textContent="Follow reference (auto)";
-    }
-  }
-});
 
-async function generate(){
-  let name=state.file? state.file.name.replace(/\.[^.]+$/,"") : $("song").value.trim();
-  if(!name){ $("song").focus(); $("song").placeholder="Name a reference track first…"; return; }
-  if(!state.file && state.query!==name) await lookupTrack(name);
-  if(!state.file && state.track) name=state.track.artist+" — "+state.track.title;
+function generate(){
+  if(!state.file){
+    drop.classList.add("over");
+    $("filechip").classList.remove("on");
+    setTimeout(()=>drop.classList.remove("over"),900);
+    return;
+  }
+  const name=state.file.name.replace(/\.[^.]+$/,"");
   const rand=mulberry32(hash(name.toLowerCase()));
   let g=$("genre").value;
-  if(g==="auto"){
-    if(!state.file && state.track && state.track.styleKey) g=state.track.styleKey;
-    else if(state.analysis) g=state.analysis.style;
-    else g=inferGenre(name,rand);
-  }
+  if(g==="auto") g=state.analysis? state.analysis.style : Object.keys(STYLES)[Math.floor(rand()*6)];
   const S=STYLES[g];
   let bpm=Math.round(S.bpm[0]+rand()*(S.bpm[1]-S.bpm[0]));
   let key=KEYS[Math.floor(rand()*KEYS.length)];
@@ -817,8 +730,7 @@ async function generate(){
     s.trans=s.idx<N-1? transitionFor(s,sections[s.idx+1],rand):"Let final element ring out to silence";
   });
 
-  state.data={name,S,g,bpm,key,chords,sections,total,mood,ts:"4/4",measured:!!A,
-              srcLabel:A? (state.source==="file"?"file analyzed":"30s preview analyzed"):""};
+  state.data={name,S,g,bpm,key,chords,sections,total,mood,ts:"4/4",measured:!!A};
   render();
 }
 
@@ -836,7 +748,7 @@ function render(){
   const d=state.data;
   $("empty").style.display="none"; $("out").classList.add("on");
   $("o-title").textContent=d.name.toUpperCase();
-  $("o-meta").innerHTML="Blueprint · "+d.S.name+" · "+d.sections.length+" sections · est. "+fmtTime(d.total)+(d.measured?(state.source==="search"?" · <em>30s preview analyzed</em>":" · <em>spectral analysis</em>"):"");
+  $("o-meta").innerHTML="Blueprint · "+d.S.name+" · "+d.sections.length+" sections · est. "+fmtTime(d.total)+(d.measured?" · <em>spectral analysis</em>":"");
   $("dlmid").style.display=inc("midi")?"inline-flex":"none";
 
   // stats

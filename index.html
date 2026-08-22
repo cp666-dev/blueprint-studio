@@ -171,6 +171,7 @@ select option { background:var(--raised); }
 .sec-h { display:flex; align-items:center; gap:9px; font-family:var(--f-mono); font-size:9.5px; letter-spacing:.26em; text-transform:uppercase; color:var(--muted); margin-bottom:10px; }
 .sec-h::before { content:""; width:8px; height:8px; border:2px solid var(--led); border-radius:2px; }
 .sec-h::after { content:""; flex:1; height:1px; background:var(--line); }
+.sec-h em { font-style:normal; color:var(--led); font-size:8.5px; letter-spacing:.14em; }
 
 /* timeline — clip regions */
 .timeline { display:flex; gap:3px; height:78px; }
@@ -200,7 +201,8 @@ select option { background:var(--raised); }
 .matrix tr:last-child th, .matrix tr:last-child td { border-bottom:none; }
 .matrix th { background:var(--inset); font-family:var(--f-mono); font-size:10px; font-weight:500; letter-spacing:.04em; text-align:left; padding:7px 12px; color:var(--muted); width:132px; border-right:1px solid var(--line-faint); white-space:nowrap; }
 .matrix td { height:26px; }
-.matrix td .on { display:block; height:11px; margin:0 1.5px; border-radius:2px; background:rgba(46,230,166,.18); }
+.matrix td .on { display:block; height:11px; margin:0 1.5px; border-radius:2px; background:rgba(46,230,166,.30); }
+.matrix td .on.lo { background:rgba(46,230,166,.12); }
 .matrix td .enter { background:var(--led); box-shadow:0 0 8px rgba(46,230,166,.45); }
 .matrix thead th { background:linear-gradient(180deg,#181d23,#13171c); text-transform:uppercase; font-size:8px; letter-spacing:.12em; text-align:center; border-right:none; width:auto; padding:6px 2px; color:var(--faint); }
 .matrix thead th:first-child { border-right:1px solid var(--line-faint); width:132px; }
@@ -406,10 +408,10 @@ select option { background:var(--raised); }
           </div>
 
           <div class="sec" id="s-elements">
-            <div class="sec-h">Who Plays When</div>
+            <div class="sec-h">Who Plays When <em id="wpw-src"></em></div>
             <div class="legend">
               <span class="l-new"><i></i>Enters here</span>
-              <span class="l-on"><i></i>Keeps playing</span>
+              <span class="l-on"><i></i>Playing — brighter = louder</span>
               <span class="l-off"><i></i>Silent</span>
             </div>
             <div class="matrix" id="matrix"></div>
@@ -583,7 +585,63 @@ function analyzeBuffer(buf){
             centroid:cd?cn/cd:0, crest:20*Math.log10((peak||1e-9)/rms), dur:buf.duration,
             beat, bassRatio:cd?bassE/cd:0 };
   A.style=classifyStyle(A);
+  A.elements=analyzeElements(mono,sr);
   return A;
+}
+
+/* ─── Element-layer detection: STFT over 8 bands → 12 measured layers ───
+   Energy rows track sustained content, flux rows track transients; a
+   layer is kept only if its peak is non-negligible for its kind. */
+function analyzeElements(mono,sr){
+  const HN=2048, hop=4096, nT=Math.floor((mono.length-HN)/hop);
+  if(nT<16) return null;
+  const BD=[[20,60],[60,150],[150,400],[400,1000],[1000,2500],[2500,5000],[5000,10000],[10000,22050]];
+  const nB=BD.length;
+  const E=BD.map(()=>new Float32Array(nT));
+  const re=new Float32Array(HN), im=new Float32Array(HN);
+  const bandOf=new Int8Array(HN/2).fill(-1);
+  for(let b=1;b<HN/2;b++){ const fr=b*sr/HN; for(let k=0;k<nB;k++) if(fr>=BD[k][0]&&fr<BD[k][1]){ bandOf[b]=k; break; } }
+  for(let t=0;t<nT;t++){
+    const off=t*hop;
+    for(let i=0;i<HN;i++){ re[i]=mono[off+i]*(0.5-0.5*Math.cos(2*Math.PI*i/HN)); im[i]=0; }
+    fft(re,im);
+    for(let b=1;b<HN/2;b++){ const k=bandOf[b]; if(k>=0) E[k][t]+=re[b]*re[b]+im[b]*im[b]; }
+  }
+  const F=E.map(e=>{ const f=new Float32Array(nT); for(let t=1;t<nT;t++) f[t]=Math.max(0,e[t]-e[t-1]); return f; });
+  const SEGS=24;
+  const seg=a=>{ const o=new Float32Array(SEGS);
+    for(let s=0;s<SEGS;s++){ const i0=Math.floor(s*nT/SEGS), i1=Math.max(i0+1,Math.floor((s+1)*nT/SEGS));
+      let m=0; for(let i=i0;i<i1;i++) m+=a[i]; o[s]=m/(i1-i0); } return o; };
+  const sE=E.map(seg), sF=F.map(seg);
+  const comb=(arr,w)=>{ const o=new Float32Array(SEGS); arr.forEach((a,i)=>{ for(let s=0;s<SEGS;s++) o[s]+=(w?w[i]:1)*a[s]; }); return o; };
+  /* riser: sustained upward slope of high-band energy within a segment */
+  const hi=new Float32Array(nT); for(let t=0;t<nT;t++) hi[t]=E[6][t]+E[7][t];
+  const riser=new Float32Array(SEGS);
+  for(let s=0;s<SEGS;s++){ const i0=Math.floor(s*nT/SEGS), i1=Math.max(i0+2,Math.floor((s+1)*nT/SEGS));
+    let sl=0,c=0; for(let i=i0+1;i<i1;i++){ sl+=hi[i]-hi[i-1]; c++; } riser[s]=Math.max(0,sl/c); }
+  /* pads: low-mid energy left over after removing its transient part */
+  const pads=new Float32Array(SEGS);
+  for(let s=0;s<SEGS;s++) pads[s]=Math.max(0, sE[2][s]+sE[3][s]-1.2*(sF[2][s]+sF[3][s]));
+  const defs=[
+    {name:"Sub Bass",           vals:sE[0],                       band:"20–60 Hz",                kind:"e"},
+    {name:"Bass",               vals:sE[1],                       band:"60–150 Hz",               kind:"e"},
+    {name:"Kick",               vals:comb([sF[0],sF[1]]),         band:"low-end transients",      kind:"f"},
+    {name:"Snare / Clap",       vals:comb([sF[2],sF[5]],[1,.6]),  band:"mid + crack transients",  kind:"f"},
+    {name:"Hi-Hats / Cymbals",  vals:comb([sF[6],sF[7]]),         band:"high transients",         kind:"f"},
+    {name:"Percussion",         vals:comb([sF[3],sF[4]]),         band:"midrange transients",     kind:"f"},
+    {name:"Pads / Sustain",     vals:pads,                        band:"sustained 150 Hz–1 kHz",  kind:"e"},
+    {name:"Chords / Keys",      vals:sE[3],                       band:"400 Hz–1 kHz",            kind:"e"},
+    {name:"Lead / Melody",      vals:sE[4],                       band:"1–2.5 kHz",               kind:"e"},
+    {name:"Vocal Presence",     vals:sE[5],                       band:"2.5–5 kHz",               kind:"e"},
+    {name:"Air / Shimmer",      vals:sE[7],                       band:"10 kHz+",                 kind:"e"},
+    {name:"Riser / Sweep",      vals:riser,                       band:"rising high-band energy", kind:"f"},
+  ];
+  const peakOf=a=>Math.max(...a);
+  const ePeak=Math.max(...defs.filter(d=>d.kind==="e").map(d=>peakOf(d.vals)))||1;
+  const fPeak=Math.max(...defs.filter(d=>d.kind==="f").map(d=>peakOf(d.vals)))||1;
+  /* compare in amplitude domain so huge sub-bass energy can't drown out mid/high layers */
+  const rows=defs.filter(d=>Math.sqrt(peakOf(d.vals))>0.06*Math.sqrt(d.kind==="e"?ePeak:fPeak));
+  return rows.length>=4? {rows}:null;
 }
 
 /* style classification from measured features — heuristic, overridable via the Style dropdown */
@@ -731,7 +789,28 @@ function generate(){
     s.trans=s.idx<N-1? transitionFor(s,sections[s.idx+1],rand):"Let final element ring out to silence";
   });
 
-  state.data={name,S,g,bpm,key,chords,sections,total,mood,ts:"4/4",measured:!!A};
+  /* measured element layers: map 24 track segments onto sections, derive real entrances */
+  let elemRows=null;
+  if(A&&A.elements){
+    const segs=A.elements.rows[0].vals.length;
+    elemRows=A.elements.rows.map(r=>{
+      const lv=sections.map(s=>{
+        const a=Math.min(segs-1,Math.floor(s.start/total*segs));
+        const b=Math.max(a+1,Math.min(segs,Math.ceil((s.start+s.len)/total*segs)));
+        let sum=0; for(let i=a;i<b;i++) sum+=r.vals[i];
+        return sum/(b-a);
+      });
+      const mx=Math.max(...lv)||1;
+      return {name:r.name, band:r.band, lv:lv.map(v=>v/mx)};
+    });
+    sections.forEach(s=>{ s.enter=[]; });
+    elemRows.forEach(r=>{
+      const fi=r.lv.findIndex(v=>v>0.28);
+      if(fi>=0) sections[fi].enter.push(r.name);
+    });
+  }
+
+  state.data={name,S,g,bpm,key,chords,sections,total,mood,ts:"4/4",measured:!!A,elemRows};
   render();
 }
 
@@ -782,17 +861,30 @@ function render(){
 
   // matrix
   $("s-elements").style.display=inc("elements")?"block":"none";
+  $("wpw-src").textContent=d.elemRows?"· measured from your audio":"· from style template";
   if(inc("elements")){
-    let firstOf={}; d.sections.forEach(s=>s.enter.forEach(el=>firstOf[el]=s.idx));
-    let html='<table><thead><tr><th>Element</th>'+d.sections.map(s=>'<th>'+s.name.split(" ")[0]+'</th>').join("")+'</tr></thead>';
-    html+=d.S.elements.map(el=>{
-      const fi=firstOf[el]??0;
-      return '<tr><th>'+el+'</th>'+d.sections.map(s=>{
-        const active=s.idx>=fi && !(s.tone==="cool"&&s.idx>fi&&s.energy<30&&Math.abs(s.idx-fi)>2);
-        const tip=el+" — "+(!active?"silent in "+s.name : s.idx===fi?"ENTERS in "+s.name : "keeps playing through "+s.name);
-        return '<td title="'+tip+'">'+(active?'<span class="on'+(s.idx===fi?' enter':'')+'"></span>':'')+'</td>';
-      }).join("")+'</tr>';
-    }).join("")+'</table>';
+    const head='<table><thead><tr><th>Element</th>'+d.sections.map(s=>'<th>'+s.name.split(" ")[0]+'</th>').join("")+'</tr></thead>';
+    let html;
+    if(d.elemRows){
+      html=head+d.elemRows.map(r=>{
+        const fi=r.lv.findIndex(v=>v>0.28);
+        return '<tr><th>'+r.name+'</th>'+d.sections.map((s,i)=>{
+          const v=r.lv[i], active=v>0.28;
+          const tip=r.name+" ("+r.band+") — "+(!active?"silent in "+s.name : (i===fi?"ENTERS in "+s.name:"level "+Math.round(v*100)+"% in "+s.name));
+          return '<td title="'+tip+'">'+(active?'<span class="on'+(i===fi?' enter':(v<0.6?' lo':''))+'"></span>':'')+'</td>';
+        }).join("")+'</tr>';
+      }).join("")+'</table>';
+    }else{
+      let firstOf={}; d.sections.forEach(s=>s.enter.forEach(el=>firstOf[el]=s.idx));
+      html=head+d.S.elements.map(el=>{
+        const fi=firstOf[el]??0;
+        return '<tr><th>'+el+'</th>'+d.sections.map(s=>{
+          const active=s.idx>=fi && !(s.tone==="cool"&&s.idx>fi&&s.energy<30&&Math.abs(s.idx-fi)>2);
+          const tip=el+" — "+(!active?"silent in "+s.name : s.idx===fi?"ENTERS in "+s.name : "keeps playing through "+s.name);
+          return '<td title="'+tip+'">'+(active?'<span class="on'+(s.idx===fi?' enter':'')+'"></span>':'')+'</td>';
+        }).join("")+'</tr>';
+      }).join("")+'</table>';
+    }
     $("matrix").innerHTML=html;
   }
 
@@ -817,7 +909,7 @@ function render(){
   const showNotes=inc("mix")||inc("instrumentation")||inc("vocals");
   $("s-notes").style.display=showNotes?"block":"none";
   let notes=[];
-  if(inc("instrumentation")) notes.push("<b>Palette:</b> "+d.S.elements.join(" · "));
+  if(inc("instrumentation")) notes.push("<b>"+(d.elemRows?"Detected layers:":"Palette:")+"</b> "+(d.elemRows? d.elemRows.map(r=>r.name).join(" · ") : d.S.elements.join(" · ")));
   if(inc("vocals")) notes.push("<b>Vocal placement:</b> lead enters "+d.sections[Math.min(1,d.sections.length-1)].name+"; save full harmony stacks and ad-libs for the final high-energy section.");
   if(inc("mix")) notes=notes.concat(d.S.mix);
   $("notes").innerHTML="<ul>"+notes.map(n=>"<li>"+n+"</li>").join("")+"</ul>";

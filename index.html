@@ -775,12 +775,23 @@ function generate(){
     });
   }
 
-  /* fit the template to the real file: scale bar counts so total length matches
-     the audio duration at the measured tempo (2-bar granularity stays musical) */
+  /* fit the template to the real file: reallocate bars (2-bar granularity,
+     largest-remainder) so total length matches the audio duration at the
+     measured tempo */
   if(A&&A.dur){
-    const tplSec=sections.reduce((a,s)=>a+s.bars*4,0)*(60/bpm);
-    const f=A.dur/tplSec;
-    sections.forEach(s=>{ s.bars=Math.max(2,Math.round(s.bars*f/2)*2); });
+    const barSec=4*60/bpm;
+    const targetUnits=Math.max(sections.length,Math.round(A.dur/barSec/2));
+    const tot=sections.reduce((a,s)=>a+s.bars,0);
+    const exact=sections.map(s=>s.bars/tot*targetUnits);
+    const base=exact.map(e=>Math.max(1,Math.floor(e)));
+    let used=base.reduce((a,b)=>a+b,0);
+    const byRem=exact.map((e,i)=>[e-Math.floor(e),i]).sort((a,b)=>b[0]-a[0]);
+    for(let k=0;used<targetUnits;k++){ base[byRem[k%byRem.length][1]]++; used++; }
+    for(let k=0;used>targetUnits;k++){
+      const idx=byRem[byRem.length-1-(k%byRem.length)][1];
+      if(base[idx]>1){ base[idx]--; used--; }
+    }
+    sections.forEach((s,i)=>{ s.bars=base[i]*2; });
   }
 
   // timecodes

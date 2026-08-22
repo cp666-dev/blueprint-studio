@@ -640,21 +640,26 @@ async function analyzeInstruments(mono,sr,onProgress){
   for(let s=0;s<SEGS;s++){
     const a=Math.floor(s*w.length/SEGS), b=Math.floor((s+1)*w.length/SEGS);
     if(b-a<16000){ segMeans.push(new Float32Array(521)); continue; }
-    const meanT=tf.tidy(()=>{
+    const scoresT=tf.tidy(()=>{
       const out=model.predict(tf.tensor1d(w.subarray(a,b)));
-      const scores=(Array.isArray(out)?out:[out]).find(t=>t.shape.length===2&&t.shape[1]===521);
-      return scores.mean(0);
+      return (Array.isArray(out)?out:[out]).find(t=>t.shape.length===2&&t.shape[1]===521).clone();
     });
-    segMeans.push(await meanT.data());
-    meanT.dispose();
+    const frames=await scoresT.array(); scoresT.dispose();
+    /* per class: mean over frames; kept per-segment for genre. Group activity
+       uses per-frame group-max averaged — a brief vocal line still registers. */
+    const cm=new Float32Array(521);
+    frames.forEach(fr=>{ for(let i=0;i<521;i++) cm[i]+=fr[i]/frames.length; });
+    cm.groupMax=g=>{ let sum=0; frames.forEach(fr=>{ let m=0; for(const i of g.idx) if(fr[i]>m) m=fr[i]; sum+=m; }); return sum/frames.length; };
+    segMeans.push(cm);
     if(onProgress) onProgress(s+1,SEGS);
     await new Promise(r=>setTimeout(r,0));
   }
   const rows=[];
   YAM_INSTRUMENTS.forEach(g=>{
     const vals=new Float32Array(SEGS);
-    for(let s=0;s<SEGS;s++){ let m=0; for(const i of g.idx) if(segMeans[s][i]>m) m=segMeans[s][i]; vals[s]=m; }
-    if(Math.max(...vals)>=0.05) rows.push({name:g.name, band:"AI-identified", kind:"ml", vals});
+    for(let s=0;s<SEGS;s++) vals[s]=segMeans[s].groupMax? segMeans[s].groupMax(g):0;
+    /* 0.02 floor validated: real vocals/guitar clear it, absent instruments stay below */
+    if(Math.max(...vals)>=0.02) rows.push({name:g.name, band:"AI-identified", kind:"ml", vals});
   });
   const overall=new Float32Array(521);
   segMeans.forEach(sm=>{ for(let i=0;i<521;i++) overall[i]+=sm[i]/SEGS; });

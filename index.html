@@ -293,6 +293,7 @@ select option { background:var(--raised); }
                 <div><div class="k">Key</div><div class="v" id="sp-key">–</div></div>
                 <div><div class="k">Brightness</div><div class="v" id="sp-cen">–</div></div>
                 <div><div class="k">Crest</div><div class="v" id="sp-dr">–</div></div>
+                <div style="grid-column:1/-1"><div class="k">Style</div><div class="v" id="sp-style">–</div></div>
                 <div style="grid-column:1/-1"><div class="k">Energy Arc</div><div class="v" id="sp-arc">–</div></div>
               </div>
               <div class="spec-bars" id="sp-bars" title="Measured energy contour"></div>
@@ -532,12 +533,18 @@ function analyzeBuffer(buf){
   }
   let bpm=Math.round(fps*60/bestLag);
   while(bpm<70) bpm*=2; while(bpm>180) bpm=Math.round(bpm/2);
+  /* beat regularity: normalized autocorrelation at the chosen lag —
+     machine-steady grooves score high, loose live playing scores low */
+  let c00=0, rawC=0;
+  for(let i=0;i<nF;i++) c00+=flux[i]*flux[i];
+  for(let i=0;i+bestLag<nF;i++) rawC+=flux[i]*flux[i+bestLag];
+  const beat=c00? rawC/c00 : 0;
   /* chroma across sampled frames → Krumhansl key match; centroid alongside */
   const N=4096, chroma=new Float32Array(12);
   const frames=Math.max(1,Math.min(40,Math.floor((mono.length-N)/N)));
   const step=Math.max(1,Math.floor((mono.length-N)/(frames+1)));
   const re=new Float32Array(N), im=new Float32Array(N);
-  let cn=0, cd=0;
+  let cn=0, cd=0, bassE=0;
   for(let f=1;f<=frames;f++){
     const off=f*step;
     for(let i=0;i<N;i++){ re[i]=mono[off+i]*(0.5-0.5*Math.cos(2*Math.PI*i/N)); im[i]=0; }
@@ -545,6 +552,7 @@ function analyzeBuffer(buf){
     for(let b=1;b<N/2;b++){
       const freq=b*sr/N, mag=re[b]*re[b]+im[b]*im[b];
       cn+=mag*freq; cd+=mag;
+      if(freq<150) bassE+=mag;
       if(freq<60||freq>2500) continue;
       const pc=((Math.round(12*Math.log2(freq/261.626))%12)+12)%12;
       chroma[pc]+=mag;
@@ -573,8 +581,24 @@ function analyzeBuffer(buf){
   let peak=0, rs=0;
   for(let i=0;i<mono.length;i+=4){ const v=Math.abs(mono[i]); if(v>peak) peak=v; rs+=v*v; }
   const rms=Math.sqrt(rs/(mono.length/4))||1e-9;
-  return { bpm, keyName, camelot:CAMELOT[keyName]||"–", contour, arc:detectArc(contour),
-           centroid:cd?cn/cd:0, crest:20*Math.log10((peak||1e-9)/rms), dur:buf.duration };
+  const A={ bpm, keyName, camelot:CAMELOT[keyName]||"–", contour, arc:detectArc(contour),
+            centroid:cd?cn/cd:0, crest:20*Math.log10((peak||1e-9)/rms), dur:buf.duration,
+            beat, bassRatio:cd?bassE/cd:0 };
+  A.style=classifyStyle(A);
+  return A;
+}
+
+/* style classification from measured features — heuristic, overridable via the Style dropdown */
+function classifyStyle(A){
+  const {bpm,centroid,crest,bassRatio,beat}=A;
+  const electronic = beat>0.32 && bassRatio>0.30;         // machine-steady + heavy low end
+  if(electronic && bpm>=112) return "edm";
+  if(bassRatio>0.42 && bpm<=104) return "hiphop";
+  if(centroid<1000 && beat<0.22 && bpm<100) return "cinematic";
+  if(electronic) return "hiphop";                          // steady + bassy but slow
+  if(crest>13.5 && bpm>=105 && centroid>1500) return "rock";
+  if(bpm<=96) return "rnb";
+  return "pop";
 }
 
 /* classify the measured contour: overall slope + oscillation count */
@@ -600,6 +624,7 @@ function showSpec(A){
   const c=A.centroid;
   $("sp-cen").textContent=(c<1300?"Warm":c<2600?"Balanced":"Bright")+" · "+(c/1000).toFixed(1)+" kHz";
   $("sp-dr").textContent=A.crest.toFixed(1)+" dB";
+  $("sp-style").textContent=STYLES[A.style].name+" · detected";
   $("sp-arc").textContent=A.arc.label+" · detected";
   $("sp-bars").innerHTML=A.contour.map(v=>'<span style="height:'+v+'%"></span>').join("");
   $("opt-follow").textContent="Follow reference ("+A.arc.short+")";
@@ -662,7 +687,8 @@ function generate(){
   const name=state.file? state.file.name.replace(/\.[^.]+$/,"") : $("song").value.trim();
   if(!name){ $("song").focus(); $("song").placeholder="Name a reference track first…"; return; }
   const rand=mulberry32(hash(name.toLowerCase()));
-  let g=$("genre").value; if(g==="auto") g=inferGenre(name,rand);
+  let g=$("genre").value;
+  if(g==="auto") g=(state.file&&state.analysis)? state.analysis.style : inferGenre(name,rand);
   const S=STYLES[g];
   let bpm=Math.round(S.bpm[0]+rand()*(S.bpm[1]-S.bpm[0]));
   let key=KEYS[Math.floor(rand()*KEYS.length)];

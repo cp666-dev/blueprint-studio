@@ -645,7 +645,7 @@ $("fx").addEventListener("click",ev=>{
 
 function setFile(f){
   state.file=f; state.analysis=null;
-  $("fn").textContent=f.name;
+  $("fn").textContent=f.name; $("fn").title=f.name;
   $("fm").textContent=(f.size/1048576).toFixed(1)+" MB · decoding…";
   $("filechip").classList.add("on");
   $("spec").classList.add("on"); $("spec-t").classList.add("busy");

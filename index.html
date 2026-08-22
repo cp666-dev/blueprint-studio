@@ -775,6 +775,14 @@ function generate(){
     });
   }
 
+  /* fit the template to the real file: scale bar counts so total length matches
+     the audio duration at the measured tempo (2-bar granularity stays musical) */
+  if(A&&A.dur){
+    const tplSec=sections.reduce((a,s)=>a+s.bars*4,0)*(60/bpm);
+    const f=A.dur/tplSec;
+    sections.forEach(s=>{ s.bars=Math.max(2,Math.round(s.bars*f/2)*2); });
+  }
+
   // timecodes
   let beat=60/bpm, pos=0;
   sections.forEach(s=>{ s.start=pos; s.len=s.bars*4*beat; pos+=s.len; });

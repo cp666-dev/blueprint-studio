@@ -217,6 +217,9 @@ select option { background:var(--raised); }
 .dtable .sn { font-weight:600; white-space:nowrap; color:var(--ink); font-family:var(--f-display); letter-spacing:.03em; }
 .dtable .mono { font-family:var(--f-mono); font-size:10.5px; color:var(--muted); white-space:nowrap; }
 .dtable .el { color:var(--led); font-weight:500; }
+.dtable .chg-out { color:var(--red); opacity:.85; }
+.dtable .chg-up { color:var(--amber); }
+.dtable .chg-dn { color:var(--muted); }
 .badge { display:inline-block; font-family:var(--f-mono); font-size:8.5px; letter-spacing:.12em; border:1px solid var(--line-strong); border-radius:999px; padding:2px 8px; color:var(--faint); background:var(--inset); }
 
 /* ── Hover help ───────────────────────────── */
@@ -934,7 +937,75 @@ function generate(){
     });
   }
 
-  state.data={name,S,g,bpm,key,chords,sections,total,mood,ts:"4/4",measured:!!A,elemRows,aiRan:!!(A&&A.ml)};
+  /* ── song-specific section detail: every cell derived from the measurement ── */
+  let notes=null, vocalNote=null;
+  if(elemRows){
+    /* intensity relative to THIS song's dynamic range, not the absolute peak */
+    const em=Math.min(...sections.map(x=>x.energy)), eM=Math.max(...sections.map(x=>x.energy));
+    sections.forEach(x=>{ x.energy=Math.round(15+(x.energy-em)/((eM-em)||1)*85); });
+
+    const on=v=>v>0.28;
+    sections.forEach((s,i)=>{
+      const c={in:[],out:[],up:[],down:[]};
+      elemRows.forEach(r=>{
+        const v=r.lv[i], p=i>0? r.lv[i-1]:0;
+        if(on(v)&&!on(p)) c.in.push(r.name);
+        else if(!on(v)&&on(p)) c.out.push(r.name);
+        else if(on(v)&&v-p>0.3) c.up.push(r.name);
+        else if(on(p)&&on(v)&&p-v>0.3) c.down.push(r.name);
+      });
+      s.changes=c; s.enter=c.in;
+    });
+
+    const loudRow=i=>{ let best="the main layer",bv=0; elemRows.forEach(r=>{ if(r.lv[i]>bv){bv=r.lv[i];best=r.name;} }); return best; };
+    const riserOn=i=>elemRows.some(r=>r.name==="Riser / Sweep"&&r.lv[i]>0.28);
+    const vocalsRow=elemRows.find(r=>r.name==="Vocals"||r.name==="Choir");
+    const capF=t=>t.charAt(0).toUpperCase()+t.slice(1);
+    sections.forEach((s,i)=>{
+      const nxt=sections[i+1], c=s.changes, parts=[];
+      if(c.in.length) parts.push("filter-open the entering "+c.in[0]+" over the first bars");
+      if(riserOn(i)&&nxt) parts.push("ride your riser's gain + HPF up into "+nxt.name);
+      if(vocalsRow&&vocalsRow.lv[i]>0.5) parts.push("delay throw on the last vocal phrase");
+      if(c.up.length) parts.push("level ride +2 dB on the rising "+c.up[0]);
+      if(c.down.length) parts.push("slow fade on "+c.down[0]+" as it recedes");
+      if(nxt&&nxt.energy-s.energy>15) parts.push("+1 dB master lift into "+nxt.name);
+      if(nxt&&s.energy-nxt.energy>15) parts.push("LPF close + reverb swell over the final 2 bars");
+      if(!parts.length) parts.push("hold levels — slow width/pan drift on "+loudRow(i));
+      s.auto=capF(parts.slice(0,2).join(" · "));
+      if(!nxt) s.trans="Let "+loudRow(i)+" ring out to silence";
+      else if(nxt.changes.in.some(n=>/Kick|Snare/.test(n))) s.trans="Drum fill into the "+nxt.name+" downbeat — "+nxt.changes.in[0]+" lands there";
+      else if(nxt.energy>s.energy+8) s.trans=(riserOn(i)?"Your existing riser":"A riser")+" + 1-beat mute before "+nxt.name;
+      else if(nxt.changes.out.length) s.trans="Drop "+nxt.changes.out[0]+" at the barline into "+nxt.name;
+      else s.trans="Carry "+loudRow(i)+" across the barline into "+nxt.name;
+    });
+
+    /* production notes computed from this track's measurements */
+    notes=[];
+    const root=key[0].split(" ")[0];
+    notes.push("Tune kick & sub to <b>"+root+"</b> — detected key is "+key[0]+" ("+key[1]+") at "+bpm+" BPM.");
+    const cr=A.crest;
+    if(cr<8) notes.push("Crest factor <b>"+cr.toFixed(1)+" dB</b> — dense, limited mix. Create contrast by muting layers between sections, not by pushing gain.");
+    else if(cr>12) notes.push("Crest factor <b>"+cr.toFixed(1)+" dB</b> — very dynamic. Protect transients: automate levels instead of compressing.");
+    else notes.push("Crest factor <b>"+cr.toFixed(1)+" dB</b> — healthy punch. Keep bus compression under ~2 dB of reduction.");
+    const br=Math.round(A.bassRatio*100);
+    if(A.bassRatio>0.5) notes.push("<b>"+br+"%</b> of spectral energy sits below 150 Hz — carve 200–400 Hz for clarity rather than boosting lows further.");
+    else if(A.bassRatio<0.2) notes.push("Only <b>"+br+"%</b> of energy is below 150 Hz — there's room for sub reinforcement at the peaks.");
+    else notes.push("<b>"+br+"%</b> of spectral energy is below 150 Hz — balanced low end; guard it with a 30 Hz high-pass on everything but kick/sub.");
+    const cen=Math.round(A.centroid);
+    if(A.centroid<1300) notes.push("Dark tonal balance (centroid ≈ <b>"+cen+" Hz</b>) — "+(elemRows.some(r=>r.name==="Air / Shimmer")?"automate the Air / Shimmer layer up at the peaks for lift.":"a top-octave layer or exciter at the peaks would add lift."));
+    else if(A.centroid>2600) notes.push("Bright balance (centroid ≈ <b>"+cen+" Hz</b>) — watch 3–5 kHz build-up when layers stack.");
+    if(A.beat>0.5) notes.push("Grid-tight groove (beat regularity <b>"+Math.round(A.beat*100)+"%</b>) — humanize one percussion layer for motion.");
+    else if(A.beat<0.25) notes.push("Loose timing feel — tighten only kick + bass to each other; let the rest breathe.");
+    if(vocalsRow){
+      const ranked=sections.map((s,i)=>[vocalsRow.lv[i],s.name]).sort((a,b)=>b[0]-a[0]);
+      vocalNote="<b>Vocal placement:</b> vocals are strongest in "+ranked[0][1]+(ranked[1]&&ranked[1][0]>0.4?" and "+ranked[1][1]:"")+" — mirror that placement, and clear 2–5 kHz in competing layers there.";
+    } else if(A.ml){
+      const peakSec=sections.reduce((a,b)=>b.energy>a.energy?b:a,sections[0]);
+      vocalNote="<b>Vocal placement:</b> no vocals detected — the reference reads instrumental. A sparse topline over "+peakSec.name+" would differentiate your version.";
+    }
+  }
+
+  state.data={name,S,g,bpm,key,chords,sections,total,mood,ts:"4/4",measured:!!A,elemRows,aiRan:!!(A&&A.ml),notes,vocalNote};
   render();
 }
 
@@ -1014,7 +1085,7 @@ function render(){
 
   // detail table
   $("s-detail").style.display="block";
-  const cols=[["Section",1],["Position",inc("lengths")],["Intensity",inc("energy")],["New Elements",inc("elements")],["Automation",inc("automation")],["Transition Out",inc("transitions")]].filter(c=>c[1]);
+  const cols=[["Section",1],["Position",inc("lengths")],["Intensity",inc("energy")],[d.elemRows?"Element Changes":"New Elements",inc("elements")],["Automation",inc("automation")],["Transition Out",inc("transitions")]].filter(c=>c[1]);
   let t='<table><thead><tr>'+cols.map(c=>'<th>'+c[0]+'</th>').join("")+'</tr></thead><tbody>';
   const eword=e=> e>=85?"peak": e>=60?"high": e>=35?"medium":"low";
   d.sections.forEach(s=>{
@@ -1022,7 +1093,18 @@ function render(){
     t+='<td class="sn">'+s.name+'</td>';
     if(inc("lengths")) t+='<td class="mono">'+fmtTime(s.start)+' · '+s.bars+' bars</td>';
     if(inc("energy")) t+='<td class="mono" title="Intensity '+s.energy+' of 100 relative to the song\'s loudest moment"><span class="emeter"><i style="width:'+s.energy+'%"></i></span>'+eword(s.energy)+'</td>';
-    if(inc("elements")) t+='<td>'+(s.enter.length?s.enter.map(e=>'<span class="el">'+e+'</span>').join(", "):'<span class="badge" title="No new instruments — same lineup as the previous section">nothing new</span>')+'</td>';
+    if(inc("elements")){
+      if(s.changes){
+        const bits=[];
+        s.changes.in.forEach(n=>bits.push('<span class="el" title="Enters in this section">+ '+n+'</span>'));
+        s.changes.out.forEach(n=>bits.push('<span class="chg-out" title="Drops out here">– '+n+'</span>'));
+        s.changes.up.forEach(n=>bits.push('<span class="chg-up" title="Level rises noticeably">'+n+' ↑</span>'));
+        s.changes.down.forEach(n=>bits.push('<span class="chg-dn" title="Level falls back">'+n+' ↓</span>'));
+        t+='<td>'+(bits.length?bits.join(", "):'<span class="badge" title="Same lineup and levels as the previous section">steady</span>')+'</td>';
+      }else{
+        t+='<td>'+(s.enter.length?s.enter.map(e=>'<span class="el">'+e+'</span>').join(", "):'<span class="badge" title="No new instruments — same lineup as the previous section">nothing new</span>')+'</td>';
+      }
+    }
     if(inc("automation")) t+='<td>'+s.auto+'</td>';
     if(inc("transitions")) t+='<td>'+s.trans+'</td>';
     t+='</tr>';
@@ -1034,8 +1116,8 @@ function render(){
   $("s-notes").style.display=showNotes?"block":"none";
   let notes=[];
   if(inc("instrumentation")) notes.push("<b>"+(d.elemRows?"Detected layers:":"Palette:")+"</b> "+(d.elemRows? d.elemRows.map(r=>r.name).join(" · ") : d.S.elements.join(" · ")));
-  if(inc("vocals")) notes.push("<b>Vocal placement:</b> lead enters "+d.sections[Math.min(1,d.sections.length-1)].name+"; save full harmony stacks and ad-libs for the final high-energy section.");
-  if(inc("mix")) notes=notes.concat(d.S.mix);
+  if(inc("vocals")) notes.push(d.vocalNote||("<b>Vocal placement:</b> lead enters "+d.sections[Math.min(1,d.sections.length-1)].name+"; save full harmony stacks and ad-libs for the final high-energy section."));
+  if(inc("mix")) notes=notes.concat(d.notes||d.S.mix);
   $("notes").innerHTML="<ul>"+notes.map(n=>"<li>"+n+"</li>").join("")+"</ul>";
 }
 
@@ -1072,8 +1154,8 @@ function blueprintText(){
     if(inc("transitions")) L.push("    transition: "+s.trans);
   });
   if(inc("instrumentation")){ L.push(""); L.push("PALETTE"); L.push(bar); L.push(d.S.elements.join(" · ")); }
-  if(inc("vocals")){ L.push(""); L.push("VOCALS"); L.push(bar); L.push("Lead enters early; reserve harmony stacks + ad-libs for the final peak."); }
-  if(inc("mix")){ L.push(""); L.push("MIX NOTES"); L.push(bar); d.S.mix.forEach(m=>L.push("• "+m)); }
+  if(inc("vocals")){ L.push(""); L.push("VOCALS"); L.push(bar); L.push((d.vocalNote||"Lead enters early; reserve harmony stacks + ad-libs for the final peak.").replace(/<[^>]+>/g,"").replace(/^Vocal placement: /,"")); }
+  if(inc("mix")){ L.push(""); L.push("MIX NOTES"); L.push(bar); (d.notes||d.S.mix).forEach(m=>L.push("• "+m.replace(/<[^>]+>/g,""))); }
   L.push(""); L.push("Generated by Blueprint Studio · original scaffold, not a reproduction");
   return L.join("\n");
 }
